@@ -2,7 +2,9 @@ import tensorflow as tf
 import math
 
 n_players = 10
-m_consumers = 10
+lambda_1 = 0.4
+lambda_2 = 0.3
+lambda_3 = 0.3
 
 alpha = math.sqrt(n_players)
 
@@ -36,7 +38,7 @@ def layer_sigmoid(
             return tf.sigmoid(tf.matmul(inputs, weights) + biases, name=name)
 
 
-def construct_h(effect_contrib, cost_type, valuation_type, i):
+def construct_h(effect_contrib, cost_type, i):
     effect_contrib_before_i = tf.strided_slice(
         effect_contrib, [
             0,
@@ -79,12 +81,12 @@ def construct_h(effect_contrib, cost_type, valuation_type, i):
     cost_type_except_i = tf.concat([cost_type_before_i, cost_type_after_i], 0)
 
     input_except_i = tf.reshape(
-        tf.concat([effect_contrib_except_i, cost_type_except_i, valuation_type], 0),
-        (1, 2 * n_players - 2 + m_consumers)
+        tf.concat([effect_contrib_except_i, cost_type_except_i], 0),
+        (1, 2 * n_players - 2)
     )
 
     layer1 = layer_sigmoid(
-        input_except_i, [2 * n_players - 2 + m_consumers, 10], [10],
+        input_except_i, [2 * n_players - 2, 10], [10],
         activation=tf.sigmoid,
         scope='h_layer1',
         name='h_layer1' + str(i)
@@ -113,13 +115,35 @@ def construct_h(effect_contrib, cost_type, valuation_type, i):
     return layer4
 
 
-def construct_adjustment(effect_contrib, cost_type, valuation_type, name='adj'):
-    adj_list = []
+def construct_g(effect_contrib, i):
+    effect_i = tf.reshape(effect_contrib[i], (1, 1))
+    layer_1 = layer_sigmoid(
+        effect_i, [1, 50], [50],
+        activation=tf.sigmoid,
+        scope='g_layer1',
+        name='g_layer1_' + str(i)
+    )
+    layer_2 = layer_sigmoid(
+        layer_1, [50, 1], [1],
+        scope='g_layer2',
+        name='g_' + str(i),
+        output_scope='g_' + str(i),
+        simple_mul=True
+    )
+    print(layer_2)
+    return layer_2
+
+
+def construct_pi(effect_contrib, cost_type, name='pi'):
+    pi_list = []
     for i in range(n_players):
-        adj_i_tensor = construct_h(effect_contrib, cost_type, valuation_type, i)
-        adj_i = tf.reshape(adj_i_tensor, (1, ))
-        adj_list.append(adj_i)
-    return tf.concat(adj_list, 0, name=name)
+        pi_i_tensor = construct_h(effect_contrib, cost_type, i) + \
+        construct_g(effect_contrib, i)
+        #here we may require pi to be greater than 0
+        #        pi_i = tf.nn.relu(tf.reshape(pi_i_tensor, (1, )))
+        pi_i = tf.reshape(pi_i_tensor, (1, ))
+        pi_list.append(pi_i)
+    return tf.concat(pi_list, 0, name=name)
 
 
 def construct_graph():
@@ -129,8 +153,6 @@ def construct_graph():
         tf.float32, shape=[n_players], name='effect_contrib'
     )
     cost_type = tf.placeholder(tf.float32, shape=[n_players], name='cost_type')
-    valuation_type = tf.placeholder(tf.float32, shape=[m_consumers], name='valuation_type')
-   
     tau = tf.placeholder(tf.float32, shape=[n_players], name='tau')
     accepted_contrib = tf.placeholder(
         tf.float32, shape=[n_players], name='accepted_contrib'
@@ -144,31 +166,41 @@ def construct_graph():
         tf.reshape(social_surplus, (1, )), [n_players]
     )
 
-    adj = construct_adjustment(effect_contrib, cost_type, valuation_type)
-    payment = tf.math.add(tau, adj, name='payment')
+    pi = construct_pi(effect_contrib, cost_type)
+    payment = tf.math.add(tau, pi, name='payment')
 
+    #print(pi)
+    #print(effect_contrib)
+    #print(cost_type)
+    #print(tau)
+    #print(social_surplus_except_i)
     print(social_surplus_tile)
+
+    loss_1 = tf.math.reduce_variance(
+        effect_contrib / (effect_contrib + payment), name='loss_1'
+    )
+    print(loss_1)
 
     loss_2 = tf.reduce_sum(
         tf.nn.relu(
-            -tf.math.add_n([adj, social_surplus_tile, -social_surplus_except_i])
+            -tf.math.add_n([pi, social_surplus_tile, -social_surplus_except_i])
         ),
         name='loss_2'
     )
     print(loss_2)
 
-    loss_1 = tf.nn.relu(
+    loss_3 = tf.nn.relu(
         tf.reduce_sum(
-            tf.math.add_n([adj, social_surplus_tile, -social_surplus_except_i])
+            tf.math.add_n([pi, social_surplus_tile, -social_surplus_except_i])
         ) - social_surplus,
-        name='loss_1'
+        name='loss_3'
     )
-    print(loss_1)
+    print(loss_3)
 
     loss = tf.math.add_n([
-        loss_2, loss_1
+        lambda_1 * loss_1, lambda_2 * loss_2, lambda_3 * loss_3
     ],
-        name='loss')
+                         name='loss')
     print(loss)
 
     return (loss)

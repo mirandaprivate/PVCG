@@ -9,28 +9,30 @@ import math
 import tensorflow as tf
 
 
-def compute_acceptance(effective_contrib, cost_type, valuation_type, alpha=1.0):
+def compute_acceptance(effective_contrib, cost_type, alpha=1.0):
     r'''Compute the acceptance vector given the quality and cost type.
 
     Args:
         effective_contrib: A list of floats, each of whose element represents
-            the capacity limit of each agent.
+            the effective contribution towards the FML model from the data
+            contributed by the data owner.
         cost_type: A list of floats, each of whose element represents the
-            cost type of each agent.
-        valuation_type: A list of floats, each of whose element represents the
-            valuation type of each agent.
+            relative cost incurred on behalf of the data owner when he
+            contributes a unit amount of data quality.  The name 'cost type' is
+            a legacy from the mechanism design field.  It does not make much
+            sense given its current definition.  But that is how people call it.
         alpha: A float.  A hyper-parameter, the linear coefficient in the
-            individual valuation function:
-                    v_i = \alpha \theta_i \sqrt{\sum{k=0}{n-1}x_k}
+            benefit function:
+                    B(q \circ \eta) = \alpha \sqrt{\sum{i=0}{n}q_i \eta_i}
+            TODO (zhongming): Explain how to tune this parameter.
 
     Returns:
         A list of floats between 0 and 1, each representing the recommended
-        acceptance ratio of the input resources contributed by the corresponding supplier.
-        The acceptance ratio is controlled by the coordinator.  This
-        function computes the recommended value based on reported capacity limits
-        , cost types and valuation types.
+        acceptance ratio of the data contributed by the corresponding data
+        owner.  The acceptance ratio is controlled by the FML coordinator.  This
+        function computes the recommended value based on reported contributions
+        and cost types.
     '''
-    alpha =  alpha * sum(valuation_type)
     contrib_len = len(effective_contrib)
     index = [i for i in range(contrib_len)]
     # Packing the input and their subscripts to get the one-to-one correspondence
@@ -70,7 +72,7 @@ def compute_acceptance(effective_contrib, cost_type, valuation_type, alpha=1.0):
     return list(acceptance)
 
 
-def compute_acc(effective_contrib, cost_type, valuation_type, *,  alpha=1.0):
+def compute_acc(effective_contrib, cost_type, *, alpha=1.0):
     ''' Compute huge sets of data's acceptance.
     '''
     acc_list = []
@@ -78,6 +80,6 @@ def compute_acc(effective_contrib, cost_type, valuation_type, *,  alpha=1.0):
     for dummy in range(length):
         e_c = effective_contrib[dummy]
         c_t = cost_type[dummy]
-        result = compute_acceptance(e_c, c_t, valuation_type, alpha=alpha)
+        result = compute_acceptance(e_c, c_t, alpha=alpha)
         acc_list.append(list(result))
     return acc_list
